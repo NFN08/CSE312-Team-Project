@@ -1,0 +1,20 @@
+{
+  "name": "tank-battle-arena-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HTTP API for Tank Battle Arena",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "pg": "^8.16.3"
+  }
+}
+
