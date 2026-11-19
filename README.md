@@ -1,3 +1,14 @@
+## Live Deployment
+
+The application is publicly available at:
+
+https://tankbattle312.duckdns.org
+
+The production deployment runs on an Ubuntu server using Docker Compose,
+nginx, Node.js/Express, React, and PostgreSQL.
+
+HTTPS is provided through Let's Encrypt, with HTTP requests redirected to HTTPS.
+
 # Tank Battle Arena
 
 Objective 1 local application foundation for the University at Buffalo CSE 312 team project. The current build contains a responsive React landing page, an Express health API, nginx routing, and PostgreSQL infrastructure. Gameplay, authentication, WebSockets, bots, and public deployment are intentionally out of scope.
@@ -107,4 +118,6 @@ npm run dev
 ```
 
 The production container path remains the supported way to verify nginx routing and the full local infrastructure.
+
+
 
