@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import AuthDialog from './AuthDialog.jsx';
+import { fetchCurrentUser, logout } from './auth.js';
 
 function TankMark() {
   return (
@@ -42,6 +44,35 @@ function ArenaPreview() {
 
 function App() {
   const [apiStatus, setApiStatus] = useState('checking');
+  // undefined = still checking, null = logged out, string = username
+  const [user, setUser] = useState(undefined);
+  const [authMode, setAuthMode] = useState(null);
+
+  useEffect(() => {
+    // GET /login and /register redirect here with ?auth=<panel>.
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get('auth');
+    if (requested === 'login' || requested === 'register') setAuthMode(requested);
+    if (requested) window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchCurrentUser(controller.signal)
+      .then(setUser)
+      .catch((error) => {
+        if (error.name !== 'AbortError') setUser(null);
+      });
+    return () => controller.abort();
+  }, []);
+
+  async function handleLogout() {
+    try {
+      await logout();
+    } finally {
+      setUser(null);
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -71,16 +102,47 @@ function App() {
           <a href="#mission">Mission</a>
           <a href="#status">Status</a>
         </nav>
-        <div className={`api-pill api-${apiStatus}`} title="Express API connection status">
-          <span />
-          API {apiStatus}
+        <div className="header-right">
+          <div className={`api-pill api-${apiStatus}`} title="Express API connection status">
+            <span />
+            API {apiStatus}
+          </div>
+          {user ? (
+            <div className="account">
+              <span className="account-name" title="Logged in">
+                <span className="account-dot" aria-hidden="true" />
+                {user}
+              </span>
+              <button className="header-button" type="button" onClick={handleLogout}>Log out</button>
+            </div>
+          ) : user === null ? (
+            <div className="account">
+              <button className="header-button" type="button" onClick={() => setAuthMode('login')}>Log in</button>
+              <button className="header-button header-button-primary" type="button" onClick={() => setAuthMode('register')}>
+                Register
+              </button>
+            </div>
+          ) : null}
         </div>
       </header>
+
+      {authMode && (
+        <AuthDialog
+          mode={authMode}
+          onModeChange={setAuthMode}
+          onClose={() => setAuthMode(null)}
+          onLoggedIn={(username) => {
+            setUser(username);
+            setAuthMode(null);
+          }}
+        />
+      )}
 
       <main>
         <section className="hero" id="home">
           <div className="hero-copy">
             <p className="eyebrow"><span>UB CSE 312</span> Multiplayer browser arena</p>
+            {user && <p className="welcome-banner">Welcome, commander <strong>{user}</strong></p>}
             <h1>Roll in.<br /><em>Own the arena.</em></h1>
             <p className="hero-description">
               A fast, tactical tank battle built for the browser. The battlefield is under
@@ -94,10 +156,16 @@ function App() {
               </button>
               <a className="text-link" href="#mission">View the mission <span>↘</span></a>
             </div>
+            {user === null && (
+              <p className="login-prompt">
+                <button type="button" onClick={() => setAuthMode('register')}>Register</button> or{' '}
+                <button type="button" onClick={() => setAuthMode('login')}>log in</button> to save your spot in the arena.
+              </p>
+            )}
             <div className="build-meta">
-              <span>Objective 01</span>
+              <span>Objective 02</span>
               <span className="meta-rule" />
-              <span>Foundation build</span>
+              <span>Accounts online</span>
             </div>
           </div>
           <ArenaPreview />
@@ -133,10 +201,16 @@ function App() {
               <p>Express service routed through one local nginx entry point.</p>
               <span className="card-state">Established</span>
             </article>
-            <article className="future-card">
+            <article>
               <span className="card-index">C</span>
+              <h3>Pilot accounts</h3>
+              <p>Separate auth server issues RS256-signed JWTs; the game server verifies them with the public key.</p>
+              <span className="card-state">Established</span>
+            </article>
+            <article className="future-card">
+              <span className="card-index">D</span>
               <h3>Battle systems</h3>
-              <p>Gameplay, live matches, and player accounts are deliberately reserved for later.</p>
+              <p>Gameplay and live matches over WebSockets arrive in the next objective.</p>
               <span className="card-state">Next objectives</span>
             </article>
           </div>

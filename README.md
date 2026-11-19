@@ -11,7 +11,7 @@ HTTPS is provided through Let's Encrypt, with HTTP requests redirected to HTTPS.
 
 # Tank Battle Arena
 
-Objective 1 local application foundation for the University at Buffalo CSE 312 team project. The current build contains a responsive React landing page, an Express health API, nginx routing, and PostgreSQL infrastructure. Gameplay, authentication, WebSockets, bots, and public deployment are intentionally out of scope.
+University at Buffalo CSE 312 team project. The current build covers Objective 1 (deployment) and Objective 2 (accounts with JWTs issued by a separate auth server): a responsive React landing page, an Express app server, a separate Express auth server, nginx routing, and PostgreSQL. Gameplay and WebSockets come in Objective 3.
 
 ## Technology Stack
 
@@ -27,11 +27,13 @@ Objective 1 local application foundation for the University at Buffalo CSE 312 t
 ```text
 Browser :8080
     |
-  nginx  ── static files ── React/Vite production build
+  nginx ── static files ── React/Vite production build
     |
-    └── /api/* ── Express :3000
-                       |
-                 PostgreSQL :5432 (internal network only)
+    ├── /register, /login, /logout ── auth server :4000 ── PostgreSQL :5432
+    |                                   │ (holds JWT private key)    (internal only)
+    |                                   └─ writes public key ─┐
+    |                                                         ▼  shared volume (read-only for app)
+    └── /api/* ─────────────────────── app server :3000  (verifies JWTs with public key only)
 ```
 
 The services are isolated in separate containers. Only nginx publishes a host port. PostgreSQL data is stored in the `postgres_data` named volume, and port 5432 is not published to the host.
@@ -42,6 +44,27 @@ The source layout leaves clear extension points:
 - `backend/src/` — HTTP API; future Socket.IO modules can live under `backend/src/realtime/`.
 - `backend/src/config/database.js` — reserved database pool factory for later persistence work.
 - A future authentication service can be added as its own top-level directory and Compose service without coupling it to the game server.
+
+## Objective 2: Authentication
+
+**Using it:** open <http://localhost:8080>, click **Register** (top right) to create an account, then **Log in**. When logged in, the header shows your username next to a **Log out** button and the hero shows "Welcome, commander <name>". Refreshing the page, or restarting every container with `docker compose down && docker compose up`, keeps you logged in until the token expires (24 hours by default).
+
+**How it works:**
+
+- **Separate auth server** (`auth/`, its own container). nginx sends `/register`, `/login`, and `/logout` only to this container (`nginx/default.conf`); those requests never reach the app container. It stores accounts in PostgreSQL (`users` table, bcrypt password hashes, case-insensitive unique usernames, parameterized queries).
+- **JWT issuing.** On login the auth server signs a JWT with **RS256** using an RSA private key. The token carries `sub`, `username`, `iss`, `aud`, `iat`, and `exp`, and is sent as an `HttpOnly; SameSite=Strict; Path=/` cookie (plus `Secure` over HTTPS). Logout clears the cookie.
+- **Keys.** On first start the auth server generates a 2048-bit RSA key pair. The private key is on the `jwt_private_key` volume, which **only** the auth container mounts. The public key is written to the `jwt_public_key` volume, which the app server mounts **read-only**. Both are named volumes, so keys (and therefore sessions) survive restarts. This shared volume is the only link between the two servers.
+- **Verification in the app server** (`backend/src/auth/jwt.js`). The app server reads the token from the cookie and verifies it locally with the public key. It never calls the auth server or the database to find out who the user is. It accepts **only** `RS256` and rejects:
+  - bad or forged signatures and tampered payloads,
+  - `alg: none`, HS256 tokens "signed" with the public key, or any other algorithm,
+  - expired tokens, and tokens with no `exp` claim,
+  - wrong issuer or audience.
+- `GET /api/me` returns the logged-in username, or 401. The `authenticate` middleware and `userFromCookieHeader()` are the hooks for authenticating WebSocket handshakes in Objective 3.
+- **XSRF.** Besides the `SameSite=Strict` cookie, the auth endpoints accept only `Content-Type: application/json`, so cross-site HTML form posts get a 415.
+
+**Automated tests:** `cd auth && npm install && npm test`, and `cd backend && npm install && npm test`. They cover registration and login validation, the cookie flags, key persistence, and each forgery case listed above.
+
+**Deployment note:** set `COOKIE_SECURE=true` in the production `.env`. With the default `auto`, the cookie gets `Secure` only if the outer proxy sends `X-Forwarded-Proto: https`.
 
 ## Prerequisites (Windows)
 
@@ -58,7 +81,7 @@ From PowerShell in the repository root:
 Copy-Item .env.example .env
 ```
 
-Open `.env` and replace `change-this-local-password` with a local password. The `.env` file is ignored by Git and must not be committed.
+Open `.env` and replace `change-this-local-password` with a local password. The `.env` file is ignored by Git and must not be committed. This step is optional locally: without a `.env`, `docker compose up` falls back to local defaults. Always use a `.env` with a real password on the deployed server.
 
 ## Validate, build, and start
 
@@ -99,7 +122,7 @@ Expected API shape (the timestamp varies):
 docker compose down
 ```
 
-This keeps the PostgreSQL named volume. To also delete local database data, explicitly run `docker compose down --volumes`; that deletion is irreversible for data stored only in the volume.
+This keeps the PostgreSQL and JWT key named volumes. To also delete local database data and signing keys, explicitly run `docker compose down --volumes`; that deletion is irreversible, and it logs everyone out because a new key pair is generated.
 
 ## Local development without Docker (optional)
 

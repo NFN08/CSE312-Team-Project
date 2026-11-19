@@ -1,5 +1,9 @@
 name: tank-battle-arena
 
+# The defaults let a fresh clone start with plain `docker compose up`.
+# Override them in a git-ignored .env file for any deployed environment.
+x-database-url: &database-url "postgresql://${POSTGRES_USER:-tank_user}:${POSTGRES_PASSWORD:-local-dev-password}@database:5432/${POSTGRES_DB:-tank_battle_arena}"
+
 services:
   nginx:
     build:
@@ -10,10 +14,13 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      auth:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - arena_network
 
+  # App/game server. Verifies JWTs with the auth server's PUBLIC key only.
   backend:
     build:
       context: backend
@@ -21,11 +28,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: "postgresql://${POSTGRES_USER:?Set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@database:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env}"
+      DATABASE_URL: *database-url
+      JWT_PUBLIC_KEY_PATH: /keys/public/jwt_public.pem
+    volumes:
+      - jwt_public_key:/keys/public:ro
     expose:
       - "3000"
     depends_on:
       database:
+        condition: service_healthy
+      auth:
         condition: service_healthy
     healthcheck:
       test:
@@ -41,12 +53,47 @@ services:
     networks:
       - arena_network
 
+  # Auth server: handles /register, /login, /logout and is the only holder of the JWT private key.
+  auth:
+    build:
+      context: auth
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: *database-url
+      JWT_PRIVATE_KEY_PATH: /keys/private/jwt_private.pem
+      JWT_PUBLIC_KEY_PATH: /keys/public/jwt_public.pem
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}
+      COOKIE_SECURE: ${COOKIE_SECURE:-auto}
+    volumes:
+      - jwt_private_key:/keys/private
+      - jwt_public_key:/keys/public
+    expose:
+      - "4000"
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4000/auth/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - arena_network
+
   database:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-tank_battle_arena}
+      POSTGRES_USER: ${POSTGRES_USER:-tank_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -67,4 +114,7 @@ networks:
 
 volumes:
   postgres_data:
-
+  # Mounted ONLY by the auth service (JWT private key).
+  jwt_private_key:
+  # Written by auth, mounted read-only by backend (JWT public key).
+  jwt_public_key:

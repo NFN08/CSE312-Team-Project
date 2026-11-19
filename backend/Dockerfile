@@ -8,6 +8,9 @@ RUN npm ci --omit=dev
 
 COPY src ./src
 
+# Mount point for the auth server's public key (shared volume, mounted read-only).
+RUN mkdir -p /keys/public && chown -R node:node /keys
+
 USER node
 EXPOSE 3000
 
