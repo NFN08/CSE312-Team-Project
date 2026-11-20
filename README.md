@@ -11,16 +11,16 @@ HTTPS is provided through Let's Encrypt, with HTTP requests redirected to HTTPS.
 
 # Tank Battle Arena
 
-University at Buffalo CSE 312 team project. The current build covers Objective 1 (deployment) and Objective 2 (accounts with JWTs issued by a separate auth server): a responsive React landing page, an Express app server, a separate Express auth server, nginx routing, and PostgreSQL. Gameplay and WebSockets come in Objective 3.
+University at Buffalo CSE 312 team project. The current build covers Objective 1 (deployment), Objective 2 (accounts with JWTs issued by a separate auth server), and Objective 3 (an authenticated real-time multiplayer tank game).
 
 ## Technology Stack
 
-- **Frontend (implemented):** React 19 and React DOM provide the component-based user interface. Vite 7 and `@vitejs/plugin-react` power local development and production builds. The browser client is written in JavaScript with semantic HTML and responsive CSS.
-- **Backend (implemented):** Node.js 22 runs the server using ECMAScript modules, while Express 5 provides the HTTP API and health endpoint. The `pg` driver is included for PostgreSQL connectivity; the connection pool is prepared for future persistence features.
-- **Database (implemented infrastructure):** PostgreSQL 17 stores application data in a persistent named volume. Objective 1 configures the database service but does not yet implement application data models or queries.
+- **Frontend (implemented):** React 19 and React DOM provide the component-based interface. Vite 7 powers local development and production builds. An HTML Canvas renders the arena, and `socket.io-client` carries real-time control inputs and game snapshots.
+- **Backend (implemented):** Node.js 22 and Express 5 provide the HTTP API. Socket.IO shares the HTTP server and runs the authenticated, server-authoritative game connection. The `pg` driver provides PostgreSQL connectivity.
+- **Database (implemented):** PostgreSQL 17 stores account records in a persistent named volume and remains private to the Compose network. Real-time match state stays in memory and is not written every tick.
 - **Web Server / Reverse Proxy (implemented):** nginx 1.27 serves the Vite production build and forwards `/api/` requests to the Express service.
-- **Containerization (implemented):** Docker packages the frontend/nginx and backend services, and Docker Compose coordinates nginx, Node.js, and PostgreSQL on an isolated local network.
-- **Real-Time Multiplayer (planned):** Socket.IO is planned for real-time client/server communication, and Phaser 3 is planned for browser-based game rendering and gameplay. Neither technology is currently installed or implemented.
+- **Containerization (implemented):** Docker packages nginx/frontend, the app server, and the auth server. Docker Compose coordinates those services with PostgreSQL on an isolated local network.
+- **Real-Time Multiplayer (implemented):** Socket.IO provides WebSocket-only multiplayer communication. A lightweight HTML Canvas renderer displays the shared arena without adding Phaser 3.
 
 ## Architecture
 
@@ -33,15 +33,17 @@ Browser :8080
     |                                   │ (holds JWT private key)    (internal only)
     |                                   └─ writes public key ─┐
     |                                                         ▼  shared volume (read-only for app)
-    └── /api/* ─────────────────────── app server :3000  (verifies JWTs with public key only)
+    ├── /api/* ─────────────────────── app server :3000  (verifies JWTs with public key only)
+    └── /socket.io/* ───────────────── Socket.IO game gateway on app server :3000
 ```
 
 The services are isolated in separate containers. Only nginx publishes a host port. PostgreSQL data is stored in the `postgres_data` named volume, and port 5432 is not published to the host.
 
 The source layout leaves clear extension points:
 
-- `frontend/src/` — React UI; a future Phaser game can live under `frontend/src/game/`.
-- `backend/src/` — HTTP API; future Socket.IO modules can live under `backend/src/realtime/`.
+- `frontend/src/Arena.jsx` — Canvas renderer, match HUD, keyboard controls, and Socket.IO client lifecycle.
+- `backend/src/game/` — deterministic authoritative movement, combat, scoring, and respawning.
+- `backend/src/realtime/` — authenticated Socket.IO gateway, origin checks, rate limiting, and state broadcasts.
 - `backend/src/config/database.js` — reserved database pool factory for later persistence work.
 - A future authentication service can be added as its own top-level directory and Compose service without coupling it to the game server.
 
@@ -65,6 +67,53 @@ The source layout leaves clear extension points:
 **Automated tests:** `cd auth && npm install && npm test`, and `cd backend && npm install && npm test`. They cover registration and login validation, the cookie flags, key persistence, and each forgery case listed above.
 
 **Deployment note:** set `COOKIE_SECURE=true` in the production `.env`. With the default `auto`, the cookie gets `Secure` only if the outer proxy sends `X-Forwarded-Proto: https`.
+
+## Objective 3: Real-Time Tank Battle
+
+Authenticated players can enter one shared top-down arena. Every tank displays the username from its verified JWT. The app server owns all positions, rotations, projectiles, collision results, health, respawns, and scores; browsers send only five boolean control inputs and cannot submit usernames, coordinates, health, damage, or scores.
+
+### Controls
+
+- `W` — move forward
+- `S` — reverse
+- `A` / `D` — rotate left or right
+- `Space` — fire
+
+Three projectile hits destroy a tank. Destroyed tanks respawn after two seconds, and the attacker receives one elimination. The live standings and current leader remain visible beside the arena.
+
+### Multiplayer and WebSocket security
+
+- Socket.IO is configured for WebSocket transport only. The server simulates at 30 ticks per second and broadcasts snapshots at up to 20 per second.
+- The JWT is read from the `HttpOnly` cookie and verified during the WebSocket handshake with the auth server's public key. Invalid, expired, forged, wrong-algorithm, wrong-issuer, and wrong-audience tokens are rejected without an auth-server or database lookup.
+- The player ID and username always come from the signed token. Unexpected client fields are rejected.
+- Handshakes require an exact allowed `Origin`; configure the comma-separated `ALLOWED_ORIGINS` value when adding a hostname.
+- Input messages are limited to 2048 bytes and rate-limited. The world is capped at 32 players and 96 active projectiles to bound CPU, memory, and network use.
+- Only one active arena connection is kept per account. A newer connection replaces the older session without allowing the stale socket to remove the new player.
+
+### Test with two players
+
+1. Start the complete stack and open <http://localhost:8080> in a normal browser window.
+2. Register and log in as the first user, then select **Enter arena**.
+3. Open a private/incognito window at the same URL. Register a different username, log in, and enter the arena.
+4. Keep both windows visible. Move with `W`, `A`, `S`, and `D`, and fire with `Space` in each window.
+5. Verify both usernames and tanks are visible, movement appears in both windows, hits reduce armor, three hits cause a respawn, and eliminations update the same scoreboard.
+6. Close one arena tab and confirm that player disappears from the other. Re-enter and confirm the player rejoins normally.
+
+Automated tests use real Socket.IO clients and cover handshake authentication, origin rejection, two simultaneous players, bidirectional movement, identity protection, combat, damage, respawning, scoring, disconnects, reconnects, and duplicate-session replacement:
+
+```powershell
+Set-Location auth
+npm install
+npm test
+
+Set-Location ..\backend
+npm install
+npm test
+```
+
+### Production compatibility
+
+The browser uses a same-origin Socket.IO path, so local HTTP automatically uses WS and production HTTPS automatically uses WSS. The container nginx configuration forwards WebSocket upgrade headers. The production TLS-terminating nginx proxy must also forward `/socket.io/` with HTTP/1.1 plus the `Upgrade` and `Connection` headers. Set `COOKIE_SECURE=true` and include `https://tankbattle312.duckdns.org` in `ALLOWED_ORIGINS`; do not expose the backend, auth, or PostgreSQL ports.
 
 ## Prerequisites (Windows)
 

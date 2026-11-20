@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Arena from './Arena.jsx';
 import AuthDialog from './AuthDialog.jsx';
 import { fetchCurrentUser, logout } from './auth.js';
 
@@ -47,6 +48,7 @@ function App() {
   // undefined = still checking, null = logged out, string = username
   const [user, setUser] = useState(undefined);
   const [authMode, setAuthMode] = useState(null);
+  const [inArena, setInArena] = useState(false);
 
   useEffect(() => {
     // GET /login and /register redirect here with ?auth=<panel>.
@@ -70,6 +72,7 @@ function App() {
     try {
       await logout();
     } finally {
+      setInArena(false);
       setUser(null);
     }
   }
@@ -89,6 +92,10 @@ function App() {
 
     return () => controller.abort();
   }, []);
+
+  if (inArena && user) {
+    return <Arena username={user} onLeave={() => setInArena(false)} />;
+  }
 
   return (
     <div className="site-shell">
@@ -145,27 +152,30 @@ function App() {
             {user && <p className="welcome-banner">Welcome, commander <strong>{user}</strong></p>}
             <h1>Roll in.<br /><em>Own the arena.</em></h1>
             <p className="hero-description">
-              A fast, tactical tank battle built for the browser. The battlefield is under
-              construction—your crew will be called in soon.
+              Enter a shared real-time battlefield, outmaneuver rival commanders, and climb
+              the live scoreboard one elimination at a time.
             </p>
             <div className="hero-actions">
-              <button className="play-button" type="button" disabled>
-                <span className="play-icon">▶</span>
-                Play
-                <small>Coming soon</small>
+              <button
+                className="play-button"
+                type="button"
+                disabled={user === undefined}
+                onClick={() => (user ? setInArena(true) : setAuthMode('login'))}
+              >
+                {user ? 'Enter arena' : 'Log in to play'}
               </button>
-              <a className="text-link" href="#mission">View the mission <span>↘</span></a>
+              <a className="text-link" href="#mission">View the mission</a>
             </div>
             {user === null && (
               <p className="login-prompt">
                 <button type="button" onClick={() => setAuthMode('register')}>Register</button> or{' '}
-                <button type="button" onClick={() => setAuthMode('login')}>log in</button> to save your spot in the arena.
+                <button type="button" onClick={() => setAuthMode('login')}>log in</button> to enter the live arena.
               </p>
             )}
             <div className="build-meta">
-              <span>Objective 02</span>
+              <span>Objective 03</span>
               <span className="meta-rule" />
-              <span>Accounts online</span>
+              <span>Multiplayer online</span>
             </div>
           </div>
           <ArenaPreview />
@@ -177,28 +187,28 @@ function App() {
             <h2>Built for quick battles and bold moves.</h2>
           </div>
           <p>
-            Tank Battle Arena is being designed as a real-time multiplayer experience where
-            positioning, timing, and teamwork decide who controls the map. This first release
-            establishes the local application foundation; combat systems arrive in a future objective.
+            Every authenticated commander joins the same server-authoritative battlefield.
+            Movement, projectiles, damage, respawns, and scores are synchronized in real time,
+            while the server—not the browser—decides what happens in combat.
           </p>
         </section>
 
         <section className="status-section" id="status">
           <div className="status-heading">
-            <p className="section-number">02 / Development status</p>
-            <h2>The garage is open.</h2>
+            <p className="section-number">02 / Battle systems</p>
+            <h2>The arena is live.</h2>
           </div>
           <div className="status-cards">
             <article>
               <span className="card-index">A</span>
               <h3>Web command</h3>
-              <p>Responsive React interface ready to become the game lobby and launch point.</p>
+              <p>Responsive React interface with a Canvas battlefield, live HUD, armor, and standings.</p>
               <span className="card-state">Established</span>
             </article>
             <article>
               <span className="card-index">B</span>
               <h3>API relay</h3>
-              <p>Express service routed through one local nginx entry point.</p>
+              <p>Express and Socket.IO share one server behind the nginx API and WebSocket proxy.</p>
               <span className="card-state">Established</span>
             </article>
             <article>
@@ -207,11 +217,11 @@ function App() {
               <p>Separate auth server issues RS256-signed JWTs; the game server verifies them with the public key.</p>
               <span className="card-state">Established</span>
             </article>
-            <article className="future-card">
+            <article>
               <span className="card-index">D</span>
               <h3>Battle systems</h3>
-              <p>Gameplay and live matches over WebSockets arrive in the next objective.</p>
-              <span className="card-state">Next objectives</span>
+              <p>Server-authoritative movement, shooting, collisions, respawning, and live scoring.</p>
+              <span className="card-state">Established</span>
             </article>
           </div>
         </section>

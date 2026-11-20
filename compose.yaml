@@ -30,6 +30,7 @@ services:
       PORT: 3000
       DATABASE_URL: *database-url
       JWT_PUBLIC_KEY_PATH: /keys/public/jwt_public.pem
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,https://tankbattle312.duckdns.org}
     volumes:
       - jwt_public_key:/keys/public:ro
     expose:

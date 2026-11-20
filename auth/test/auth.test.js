@@ -130,7 +130,10 @@ test('key pair is generated once and reused across restarts', () => {
     const second = loadOrCreateKeyPair(paths);
     assert.equal(first.privateKey, second.privateKey);
     assert.equal(readFileSync(paths.publicKeyPath, 'utf8'), first.publicKey);
-    assert.equal(statSync(paths.privateKeyPath).mode & 0o777, 0o600);
+    // Windows does not implement POSIX mode bits; Docker/Linux must enforce 0600.
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(paths.privateKeyPath).mode & 0o777, 0o600);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
