@@ -37,6 +37,7 @@ export function attachGameServer(httpServer, {
   tokenVerifier,
   allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
   engine = new GameEngine(),
+  bots = null,
   autoStart = true,
 } = {}) {
   if (!tokenVerifier) throw new Error('tokenVerifier is required for WebSocket authentication');
@@ -63,7 +64,7 @@ export function attachGameServer(httpServer, {
         callback('Authentication required', false);
         return;
       }
-      if (engine.playerCount >= engine.maxPlayers && !engine.hasPlayer(user.userId)) {
+      if (engine.humanCount >= engine.maxPlayers && !engine.hasPlayer(user.userId)) {
         callback('Arena is full', false);
         return;
       }
@@ -133,8 +134,11 @@ export function attachGameServer(httpServer, {
     if (tickTimer) return;
     previousTick = Date.now();
     previousBroadcast = previousTick;
+    bots?.start(previousTick);
     tickTimer = setInterval(() => {
       const now = Date.now();
+      // AI bots pick their controls inside the same authoritative tick as human input.
+      bots?.update(now);
       engine.step((now - previousTick) / 1000, now);
       previousTick = now;
       if (now - previousBroadcast >= 1000 / BROADCAST_RATE) {
@@ -151,5 +155,5 @@ export function attachGameServer(httpServer, {
   }
 
   if (autoStart) start();
-  return { io, engine, broadcast, start, stop };
+  return { io, engine, bots, broadcast, start, stop };
 }

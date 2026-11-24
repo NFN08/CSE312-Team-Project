@@ -531,6 +531,18 @@ footer p:last-child { justify-self: end; }
 .scoreboard li.is-local { color: var(--acid); background: rgba(201, 242, 91, 0.06); }
 .score-rank { color: #6f796d; font-variant-numeric: tabular-nums; }
 .score-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bot-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 5px;
+  border: 1px solid rgba(201, 242, 91, 0.45);
+  border-radius: 3px;
+  color: #c9f25b;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+}
 
 .controls-card { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
 .controls-card .panel-label { grid-column: 1 / -1; margin-bottom: 4px; }

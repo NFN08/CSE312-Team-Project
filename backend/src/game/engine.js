@@ -35,6 +35,7 @@ function publicPlayer(player, now) {
     score: player.score,
     alive: player.respawnAt === null,
     respawnIn: player.respawnAt === null ? 0 : Math.max(0, player.respawnAt - now),
+    bot: player.isBot,
   };
 }
 
@@ -51,6 +52,13 @@ export class GameEngine {
 
   get playerCount() {
     return this.players.size;
+  }
+
+  // Human players only. Server-side bots never take a connection slot.
+  get humanCount() {
+    let count = 0;
+    for (const player of this.players.values()) if (!player.isBot) count += 1;
+    return count;
   }
 
   hasPlayer(userId) {
@@ -79,22 +87,13 @@ export class GameEngine {
     return best;
   }
 
-  addPlayer(identity, socketId, now = Date.now()) {
-    const existing = this.players.get(identity.userId);
-    if (existing) {
-      existing.socketId = socketId;
-      existing.username = identity.username;
-      existing.input = { ...EMPTY_INPUT };
-      existing.lastInputAt = now;
-      return existing;
-    }
-    if (this.players.size >= this.maxPlayers) return null;
-
+  createTank({ id, username, socketId, isBot }, now) {
     const spawn = this.chooseSpawn();
     const player = {
-      id: identity.userId,
-      username: identity.username,
+      id,
+      username,
       socketId,
+      isBot,
       x: spawn.x,
       y: spawn.y,
       rotation: spawn.rotation ?? 0,
@@ -109,9 +108,39 @@ export class GameEngine {
     return player;
   }
 
+  addPlayer(identity, socketId, now = Date.now()) {
+    if (typeof socketId !== 'string' || !socketId) return null;
+    const existing = this.players.get(identity.userId);
+    if (existing) {
+      // A WebSocket session can never take over a server-controlled bot.
+      if (existing.isBot) return null;
+      existing.socketId = socketId;
+      existing.username = identity.username;
+      existing.input = { ...EMPTY_INPUT };
+      existing.lastInputAt = now;
+      return existing;
+    }
+    if (this.humanCount >= this.maxPlayers) return null;
+    return this.createTank({ id: identity.userId, username: identity.username, socketId, isBot: false }, now);
+  }
+
+  // Bots are created only by server code; they have no socket and no network entry point.
+  addBot(botId, username, now = Date.now()) {
+    if (this.players.has(botId)) return null;
+    return this.createTank({ id: botId, username, socketId: null, isBot: true }, now);
+  }
+
+  removeBot(botId) {
+    const player = this.players.get(botId);
+    if (!player?.isBot) return false;
+    this.players.delete(botId);
+    this.projectiles = this.projectiles.filter((projectile) => projectile.ownerId !== botId);
+    return true;
+  }
+
   removePlayer(userId, socketId) {
     const player = this.players.get(userId);
-    if (!player || player.socketId !== socketId) return false;
+    if (!player || player.isBot || player.socketId !== socketId) return false;
     this.players.delete(userId);
     this.projectiles = this.projectiles.filter((projectile) => projectile.ownerId !== userId);
     return true;
@@ -119,7 +148,15 @@ export class GameEngine {
 
   setInput(userId, socketId, input, now = Date.now()) {
     const player = this.players.get(userId);
-    if (!player || player.socketId !== socketId) return false;
+    if (!player || player.isBot || player.socketId !== socketId) return false;
+    player.input = { ...input };
+    player.lastInputAt = now;
+    return true;
+  }
+
+  setBotInput(botId, input, now = Date.now()) {
+    const player = this.players.get(botId);
+    if (!player?.isBot) return false;
     player.input = { ...input };
     player.lastInputAt = now;
     return true;

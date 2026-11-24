@@ -31,6 +31,9 @@ services:
       DATABASE_URL: *database-url
       JWT_PUBLIC_KEY_PATH: /keys/public/jwt_public.pem
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,https://tankbattle312.duckdns.org}
+      # Objective 4: server-side MCTS bot tanks (0 disables them, max 8).
+      BOT_COUNT: ${BOT_COUNT:-3}
+      BOT_SEARCH_ITERATIONS: ${BOT_SEARCH_ITERATIONS:-200}
     volumes:
       - jwt_public_key:/keys/public:ro
     expose:

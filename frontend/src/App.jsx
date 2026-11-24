@@ -173,9 +173,9 @@ function App() {
               </p>
             )}
             <div className="build-meta">
-              <span>Objective 03</span>
+              <span>Objective 04</span>
               <span className="meta-rule" />
-              <span>Multiplayer online</span>
+              <span>AI rivals online</span>
             </div>
           </div>
           <ArenaPreview />
@@ -220,7 +220,7 @@ function App() {
             <article>
               <span className="card-index">D</span>
               <h3>Battle systems</h3>
-              <p>Server-authoritative movement, shooting, collisions, respawning, and live scoring.</p>
+              <p>Server-authoritative movement, shooting, collisions, respawning, and live scoring, with AI tanks that plan using Monte Carlo tree search.</p>
               <span className="card-state">Established</span>
             </article>
           </div>

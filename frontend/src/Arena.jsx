@@ -109,7 +109,7 @@ function drawArena(canvas, state, playerId) {
     context.fillStyle = isLocal ? '#f2ffd4' : '#e1e8dd';
     context.font = `${isLocal ? '700' : '600'} 14px system-ui`;
     context.textAlign = 'center';
-    context.fillText(player.username, player.x, player.y - 50);
+    context.fillText(player.bot ? `${player.username} · AI` : player.username, player.x, player.y - 50);
   }
 
   context.restore();
@@ -269,7 +269,10 @@ export default function Arena({ username, onLeave }) {
               {sortedPlayers.map((player, index) => (
                 <li key={player.id} className={player.id === playerId ? 'is-local' : ''}>
                   <span className="score-rank">{index + 1}</span>
-                  <span className="score-name">{player.username}{gameState?.leaders?.includes(player.id) && player.score > 0 ? ' · Leader' : ''}</span>
+                  <span className="score-name">
+                    {player.bot && <span className="bot-tag" title="Server-side AI tank (Monte Carlo tree search)">AI</span>}
+                    {player.username}{gameState?.leaders?.includes(player.id) && player.score > 0 ? ' · Leader' : ''}
+                  </span>
                   <strong>{player.score}</strong>
                 </li>
               ))}

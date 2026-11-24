@@ -11,7 +11,7 @@ HTTPS is provided through Let's Encrypt, with HTTP requests redirected to HTTPS.
 
 # Tank Battle Arena
 
-University at Buffalo CSE 312 team project. The current build covers Objective 1 (deployment), Objective 2 (accounts with JWTs issued by a separate auth server), and Objective 3 (an authenticated real-time multiplayer tank game).
+University at Buffalo CSE 312 team project. The current build covers Objective 1 (deployment), Objective 2 (accounts with JWTs issued by a separate auth server), Objective 3 (an authenticated real-time multiplayer tank game), and Objective 4 (AI bot tanks driven by Monte Carlo tree search).
 
 ## Technology Stack
 
@@ -44,6 +44,7 @@ The source layout leaves clear extension points:
 - `frontend/src/Arena.jsx` — Canvas renderer, match HUD, keyboard controls, and Socket.IO client lifecycle.
 - `backend/src/game/` — deterministic authoritative movement, combat, scoring, and respawning.
 - `backend/src/realtime/` — authenticated Socket.IO gateway, origin checks, rate limiting, and state broadcasts.
+- `backend/src/ai/` — Objective 4 AI bots: the Monte Carlo tree search planner (`mcts.js`) and the controller that runs bots inside the game loop (`botController.js`).
 - `backend/src/config/database.js` — reserved database pool factory for later persistence work.
 - A future authentication service can be added as its own top-level directory and Compose service without coupling it to the game server.
 
@@ -114,6 +115,44 @@ npm test
 ### Production compatibility
 
 The browser uses a same-origin Socket.IO path, so local HTTP automatically uses WS and production HTTPS automatically uses WSS. The container nginx configuration forwards WebSocket upgrade headers. The production TLS-terminating nginx proxy must also forward `/socket.io/` with HTTP/1.1 plus the `Upgrade` and `Connection` headers. Set `COOKIE_SECURE=true` and include `https://tankbattle312.duckdns.org` in `ALLOWED_ORIGINS`; do not expose the backend, auth, or PostgreSQL ports.
+
+## Objective 4: AI Bot Tanks (AI and Machine Learning)
+
+**What we built.** Server-side AI tanks that join the same shared arena as logged-in players. Each bot picks its controls with **Monte Carlo tree search (MCTS) using the UCT selection rule**, an algorithm not covered in CSE 312. Bots drive, aim, fire, dodge incoming shells, take damage, get destroyed, respawn, and score eliminations exactly like human players. They appear on the live scoreboard and above their tanks with an **AI** tag.
+
+Start the stack with `docker compose up` and open <http://localhost:8080>. Log in, select **Enter arena**, and three bots (Bot Viper, Bot Rook, Bot Atlas) are already in the match. Set `BOT_COUNT` (0–8, default 3; `0` disables bots) and `BOT_SEARCH_ITERATIONS` (20–2000, default 200) in `.env` to change them.
+
+### The algorithm
+
+Five times per second, each bot runs a fresh search (`backend/src/ai/mcts.js`):
+
+1. **Simplified game state.** The bot's tank, its target (the nearest living tank, preferring humans and avoiding targets other bots are already chasing), and every projectile within 650 px. Each tank carries position, heading, armor, and remaining fire cooldown.
+2. **Actions.** The 18 combinations of throttle (forward / none / reverse) × turn (left / none / right) × fire, which are exactly the controls a human can send. Each tree edge holds that action for 0.3 s, and the tree plans 4 actions (1.2 s) ahead.
+3. **Forward model.** A small simulator that uses the real game constants (speeds, turn rate, projectile speed, damage, cooldown, hit radius) to predict movement, shots, and hits in 0.1 s substeps. The target is modeled as fighting back: it keeps its current throttle, turns toward the bot, and fires when lined up.
+4. **Search.** Each iteration does *selection* (UCB1: mean value + exploration bonus), *expansion* of one untried action, a *rollout* to the horizon with a mostly aim-and-fire policy, and *backpropagation* of the discounted return. The reward is damage dealt minus 1.25× damage taken, with bonuses or penalties for kills and deaths. A heuristic at the horizon rewards facing the target, staying near a 320 px firing range, and keeping away from walls.
+5. **Decision.** The most-visited root action becomes the bot's input for the next 200 ms.
+
+The search can line up shots and also step out of the path of incoming shells, which scripted chasing would not do. A decision with the default 200 iterations takes a few milliseconds, well inside one 33 ms game tick, and bots start on staggered schedules so their searches are spread across ticks.
+
+### How it connects to Objective 3
+
+- Bots are ordinary tanks in the same authoritative `GameEngine`. `BotController.update()` runs at the start of every tick of the Socket.IO game loop and writes each bot's input the same way a human's `player:input` message does. After that, `engine.step()` applies the same movement, collision, damage, respawn, and scoring rules to everyone.
+- Bot tanks are included in the same `game:state` WebSocket broadcasts (with `bot: true`), so every connected browser sees them move and fire in real time.
+- Bots only act while at least one human is in the arena. With no humans connected they sit idle and use no CPU on searching.
+
+### Security (Objective 2 and 3 rules are unchanged)
+
+- Bots are created only by server code. They have no socket, no HTTP route, and no WebSocket event, so the feature adds no way for an unauthenticated user to act. Handshakes still require a valid RS256 JWT and an allowed origin.
+- The engine never lets a socket control, replace, or remove a bot: client inputs are matched by socket ID, and bots have none. Bot IDs (`bot-N`) cannot match a real account ID (numeric database IDs from the JWT `sub`). Even a validly signed token claiming a bot ID is refused.
+- Bot names contain a space, which the auth server never allows in usernames, so a bot cannot impersonate a player and a player cannot impersonate a bot.
+- Bots do not use human connection slots, and their projectiles count toward the existing 96-projectile cap.
+
+### Tests
+
+`cd backend && npm test` runs the Objective 4 tests along with every earlier test:
+
+- `test/botAI.test.js` covers search decisions: it fires when lined up, turns toward an off-axis target, and dodges a shell that would hit if it stood still. It also checks that visit counts add up to the iteration budget, that results are reproducible with a seed, the time per decision, and config clamping.
+- `test/bots.test.js` covers game-loop integration: bots appear on the scoreboard without using human slots, socket APIs cannot touch bots, bots idle without humans, a bot hunts down and eliminates a human, and a human eliminates a bot that then respawns. Over a real Socket.IO server it checks that bots are broadcast, move, and shoot live, that anonymous handshakes are still rejected, and that a token claiming a bot ID cannot take it over.
 
 ## Prerequisites (Windows)
 
